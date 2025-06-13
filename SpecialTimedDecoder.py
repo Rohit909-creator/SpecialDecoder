@@ -1,11 +1,39 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from model import TLMBlock
 # from g_mlp_pytorch import gMLP
-from Data import load_tokenizer
+# from Data import load_tokenizer
 import time
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# device = torch.device('cpu')
+# torch.set_default_device('cpu')
+
+class SpecialTimedDecoderBlock(nn.Module):
+    
+    def __init__(self, timesteps, num_heads, context_length, embed_size, device='cpu'):
+       super().__init__()
+       
+       self.device = device
+       
+       self.embeddings = nn.Embedding(num_embeddings=timesteps, embedding_dim=embed_size)
+       self.LLMBlock = TLMBlock(num_heads, context_length, embed_size)
+    #    self.timer = torch.tensor([0]).to(device=device)
+    #    self.timer.requires_grad_(False)
+       
+       self.time_steps = timesteps
+       
+    def forward(self, current_embs):
+        timer = torch.tensor([i for i in range(self.time_steps)]).to(self.device)
+        new_embs = current_embs
+        for i in range(self.time_steps):
+            # timer[0] = i
+            # print(timer[i].unsqueeze(0))
+            current_embs = current_embs + new_embs + self.embeddings(timer[i].unsqueeze(0))
+            new_embs = self.LLMBlock(current_embs)
+        
+        return new_embs
 
 class Head(nn.Module):
 
@@ -46,47 +74,22 @@ class MultiHeadedAttention(nn.Module):
         out = torch.cat([h(x) for h in self.heads], dim =-1)
         out = self.fc(out)
         return out
+    
+class RecurrentLM(nn.Module):
 
-class TLMBlock(nn.Module):
-
-  def __init__(self, num_heads, context_length, embed_size):
-    super().__init__()
-
-    self.ln_1 = nn.LayerNorm(embed_size)
-    self.sa_head = MultiHeadedAttention(num_heads, context_length,embed_size)
-    self.dropout = nn.Dropout(p=0.2)
-    self.ln_2 = nn.LayerNorm(embed_size)
-    # self.silu = nn.SiLU()
-    self.mlp = nn.Sequential(
-       nn.Linear(embed_size, 2*embed_size),
-       nn.Linear(2*embed_size,embed_size),
-       nn.Linear(embed_size,embed_size),
-       nn.GELU(),
-       nn.Dropout(p=0.1)
-    )
-  def forward(self, x):
-
-    # B,T = x.shape
-    # print(B,T)
-    x = x+self.sa_head(self.ln_1(x))
-    # print(x.shape)
-    x = x + self.mlp(self.ln_2(x))
-
-    # print(x.shape)
-    return x
-
-class TLM(nn.Module):
-
-  def __init__(self, vocab_size, context_length, embed_size, num_blocks = 5):
+  def __init__(self, vocab_size, context_length, embed_size, num_blocks = 5, device = 'cpu'):
     super().__init__()
     self.token_embeddings = nn.Embedding(vocab_size, embed_size)
     self.positional_embeddings = nn.Embedding(context_length, embed_size)
     self.word_embeddings = nn.Embedding(context_length, embed_size)
     self.context_length = context_length
-    self.block = nn.ModuleList()
-    for _ in range(num_blocks):
-      self.block.append(TLMBlock( 4, context_length,embed_size))
-
+    
+    self.blocks = SpecialTimedDecoderBlock(num_blocks, 4, context_length, embed_size, device=device)
+    
+    # self.block = nn.ModuleList()
+    # for _ in range(num_blocks):
+    #   self.block.append(TLMBlock( 4, context_length,embed_size))
+    self.device = device
     self.lm_head = nn.Linear(embed_size,vocab_size)
     self.silu = nn.SiLU()
 
@@ -96,12 +99,13 @@ class TLM(nn.Module):
     # print(B,T)
     tok_emb = self.token_embeddings(idx)
     # print(tok_emb.shape)
-    pos_emb = self.positional_embeddings(torch.arange(T, device=device))
+    pos_emb = self.positional_embeddings(torch.arange(T, device=self.device))
     # word_emb = self.word_embeddings(idx)
     x = tok_emb + pos_emb
     # print(x.shape)
-    for _,layer in enumerate(self.block):
-      x = layer(x)
+    # for _,layer in enumerate(self.block):
+    #   x = layer(x)
+    x = self.blocks(x)
 
     logits = self.lm_head(x)
     if targets == None:
@@ -131,49 +135,26 @@ class TLM(nn.Module):
 
         idx = torch.cat((idx, idx_next), dim = 1)
         # print(idx.shape)
-      return idx
-        
+      return idx  
+
 def generate(string):
 
   for s in string:
     print(s, end="")
     time.sleep(0.05)
-if __name__ ==  "__main__":
-  
-  # Previous Model Testing
-  
-  model_path = r"C:\Users\Rohit Francis\Downloads\model2 (1).pt"
-  cache_dir = "./cache"
 
-  m = TLM(11799,768,1024,12)
-  m.load_state_dict(torch.load(model_path))
-  # print(f"Model:{m.named_modules}\n\n")
-  
-  
-  # named_children = m.named_children()
-  # print(named_children)
-  
-  
-  # m.block = m.block[:5]
-  # print(len(m.block))
-  m = m.to(device)
-  
-  tokenizer = load_tokenizer(cache_dir)
-  
-  # initial_text = "and go to sleep. But the twins didn't want to sleep yet. They wanted to"
-  # context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
-  
-  
-  
-  with torch.no_grad():
-    initial_text = "and go to sleep. But the twins didn't want to sleep yet. They wanted to"
-    context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
-    # m.generate(context, 100)
-    generated_tokens = m.generate(context, 100)[0].tolist()
-    generated_text = tokenizer.decode(generated_tokens)
-    print(f"Generated: {generated_text[:1000]}")
-  
-  # tlm = TLM(4,8,32,10).load_state_dict(torch.load(model_path))
-  # x = torch.ones((8,4),dtype=torch.long)
-  # out = tlm(x)
-  # print(out[0].shape)
+if __name__ == "__main__":
+    
+    # prev_embs = torch.randn((1, 768, 1024)).to(device="cuda")
+    
+    # specialblock = SpecialTimedDecoderBlock(5, 4, 768, 1024, device='cuda')
+    # specialblock = specialblock.to(device='cuda')
+    # out = specialblock(prev_embs)
+    # print(out)
+    # print(out.shape)
+    
+    tlm = RecurrentLM(4,8,32,10,device=device)
+    tlm = tlm.to(device)
+    x = torch.ones((8,4),dtype=torch.long).to(device)
+    out = tlm(x)
+    print(out[0].shape)
