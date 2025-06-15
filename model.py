@@ -58,11 +58,10 @@ class TLMBlock(nn.Module):
     self.ln_2 = nn.LayerNorm(embed_size)
     # self.silu = nn.SiLU()
     self.mlp = nn.Sequential(
-       nn.Linear(embed_size, 2*embed_size),
-       nn.Linear(2*embed_size,embed_size),
-       nn.Linear(embed_size,embed_size),
-       nn.GELU(),
-       nn.Dropout(p=0.1)
+      nn.Linear(embed_size, 2*embed_size),
+      nn.GELU(),
+      nn.Dropout(p=0.1),
+      nn.Linear(2*embed_size, embed_size),
     )
   def forward(self, x):
 
@@ -74,6 +73,7 @@ class TLMBlock(nn.Module):
 
     # print(x.shape)
     return x
+
 
 class TLM(nn.Module):
 

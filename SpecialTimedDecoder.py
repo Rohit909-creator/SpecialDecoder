@@ -10,20 +10,21 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # device = torch.device('cpu')
 # torch.set_default_device('cpu')
 
+
 class SpecialTimedDecoderBlock(nn.Module):
-    
+
     def __init__(self, timesteps, num_heads, context_length, embed_size, device='cpu'):
        super().__init__()
-       
+
        self.device = device
-       
+
        self.embeddings = nn.Embedding(num_embeddings=timesteps, embedding_dim=embed_size)
        self.LLMBlock = TLMBlock(num_heads, context_length, embed_size)
     #    self.timer = torch.tensor([0]).to(device=device)
     #    self.timer.requires_grad_(False)
-       
+
        self.time_steps = timesteps
-       
+
     def forward(self, current_embs):
         timer = torch.tensor([i for i in range(self.time_steps)]).to(self.device)
         new_embs = current_embs
@@ -32,7 +33,7 @@ class SpecialTimedDecoderBlock(nn.Module):
             # print(timer[i].unsqueeze(0))
             current_embs = current_embs + new_embs + self.embeddings(timer[i].unsqueeze(0))
             new_embs = self.LLMBlock(current_embs)
-        
+
         return new_embs
 
 class Head(nn.Module):
@@ -53,7 +54,8 @@ class Head(nn.Module):
         B,T,C = X.shape
         q = self.queries(X)
         k = self.keys(X)
-        wei = q @ k.transpose(-2, -1) * C**-0.5
+        # wei = q @ k.transpose(-2, -1) * C**-0.5
+        wei = q @ k.transpose(-2, -1) * self.head_dim**-0.5
         wei = wei.masked_fill(self.tril[:T,:T] == 0, float('-inf'))
         wei = F.softmax(wei, dim = -1)
         v = self.values(X)
@@ -74,7 +76,7 @@ class MultiHeadedAttention(nn.Module):
         out = torch.cat([h(x) for h in self.heads], dim =-1)
         out = self.fc(out)
         return out
-    
+
 class RecurrentLM(nn.Module):
 
   def __init__(self, vocab_size, context_length, embed_size, num_blocks = 5, device = 'cpu'):
@@ -83,9 +85,9 @@ class RecurrentLM(nn.Module):
     self.positional_embeddings = nn.Embedding(context_length, embed_size)
     self.word_embeddings = nn.Embedding(context_length, embed_size)
     self.context_length = context_length
-    
+
     self.blocks = SpecialTimedDecoderBlock(num_blocks, 4, context_length, embed_size, device=device)
-    
+
     # self.block = nn.ModuleList()
     # for _ in range(num_blocks):
     #   self.block.append(TLMBlock( 4, context_length,embed_size))
@@ -135,7 +137,7 @@ class RecurrentLM(nn.Module):
 
         idx = torch.cat((idx, idx_next), dim = 1)
         # print(idx.shape)
-      return idx  
+      return idx
 
 def generate(string):
 
@@ -144,17 +146,55 @@ def generate(string):
     time.sleep(0.05)
 
 if __name__ == "__main__":
-    
+
     # prev_embs = torch.randn((1, 768, 1024)).to(device="cuda")
-    
+
     # specialblock = SpecialTimedDecoderBlock(5, 4, 768, 1024, device='cuda')
     # specialblock = specialblock.to(device='cuda')
     # out = specialblock(prev_embs)
     # print(out)
     # print(out.shape)
-    
+
     tlm = RecurrentLM(4,8,32,10,device=device)
     tlm = tlm.to(device)
     x = torch.ones((8,4),dtype=torch.long).to(device)
     out = tlm(x)
     print(out[0].shape)
+    
+    from Data import load_tokenizer
+    
+    model_path = r"C:\Users\Rohit Francis\Downloads\model2 (2).pt"
+    cache_dir = "./cache"
+
+    m = RecurrentLM(11799,768,1024,12, device=device)
+    m.load_state_dict(torch.load(model_path))
+    # print(f"Model:{m.named_modules}\n\n")
+    
+    
+    # named_children = m.named_children()
+    # print(named_children)
+    
+    
+    # m.block = m.block[:5]
+    # print(len(m.block))
+    m = m.to(device)
+    
+    tokenizer = load_tokenizer(cache_dir)
+    
+    # initial_text = "and go to sleep. But the twins didn't want to sleep yet. They wanted to"
+    # context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
+    
+    
+    
+    with torch.no_grad():
+      initial_text = "and go to sleep. But the twins didn't want to sleep yet. They wanted to"
+      context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
+      # m.generate(context, 100)
+      generated_tokens = m.generate(context, 100)[0].tolist()
+      generated_text = tokenizer.decode(generated_tokens)
+      print(f"Generated: {generated_text[:1000]}")
+    
+    # tlm = TLM(4,8,32,10).load_state_dict(torch.load(model_path))
+    # x = torch.ones((8,4),dtype=torch.long)
+    # out = tlm(x)
+    # print(out[0].shape)

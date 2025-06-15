@@ -339,9 +339,9 @@ if __name__ == "__main__":
         model_path=model_path,
         cache_dir=cache_dir,
         embeddings_cache_dir=embeddings_cache_dir,
-        num_samples=100,  # Adjust this number based on your research needs
+        num_samples=2000,  # Adjust this number based on your research needs
         context_length=768,
-        batch_size=8,
+        batch_size=64,
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )
     
