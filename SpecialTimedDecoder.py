@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from model import TLMBlock
 # from g_mlp_pytorch import gMLP
 # from Data import load_tokenizer
 import time
@@ -10,6 +9,61 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # device = torch.device('cpu')
 # torch.set_default_device('cpu')
 
+class SwiGLU(nn.Module):
+    def __init__(self, dim, hidden_dim):
+        super().__init__()
+        self.w1 = nn.Linear(dim, hidden_dim, bias=False)
+        self.w2 = nn.Linear(hidden_dim, dim, bias=False)
+        self.w3 = nn.Linear(dim, hidden_dim, bias=False)
+        
+    def forward(self, x):
+        # SwiGLU: Swish(xW1) ⊙ (xW3) W2
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+    
+    def forward(self, x):
+        # More numerically stable RMSNorm
+        # Calculate mean of squares
+        mean_square = x.pow(2).mean(dim=-1, keepdim=True)
+        # RMS normalization
+        rms = torch.sqrt(mean_square + self.eps)
+        return self.weight * x / rms
+
+
+class TLMBlock(nn.Module):
+
+  def __init__(self, num_heads, context_length, embed_size):
+    super().__init__()
+
+    self.ln_1 = RMSNorm(embed_size)
+    # self.sa_head = MultiHeadedAttention(num_heads, context_length,embed_size)
+    
+    self.dropout = nn.Dropout(p=0.2)
+    self.ln_2 = RMSNorm(embed_size)
+    # self.silu = nn.SiLU()
+    self.mlp = nn.Sequential(
+      nn.Linear(embed_size, 2*embed_size),
+      SwiGLU(2*embed_size,2*embed_size),
+      nn.Dropout(p=0.1),
+      nn.Linear(2*embed_size, embed_size),
+    )
+  def forward(self, x):
+
+    # B,T = x.shape
+    # print(B,T)
+    # x = x+self.sa_head(self.ln_1(x))
+    x = self.ln_1(x)
+    x = x + nn.functional.scaled_dot_product_attention(x, x, x, is_causal=True, dropout_p=0.2)
+    # print(x.shape)
+    x = x + self.mlp(self.ln_2(x))
+
+    # print(x.shape)
+    return x
 
 class SpecialTimedDecoderBlock(nn.Module):
 
@@ -36,46 +90,6 @@ class SpecialTimedDecoderBlock(nn.Module):
 
         return new_embs
 
-class Head(nn.Module):
-
-    def __init__(self, context_length, embed_size, head_dim):
-        super().__init__()
-
-        self.queries = nn.Linear(embed_size, head_dim, bias = False)
-        self.keys = nn.Linear(embed_size, head_dim, bias=False)
-        self.values = nn.Linear(embed_size, head_dim, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(context_length, context_length)))
-
-        # self.ln = nn.LayerNorm(head_dim)
-        # self.ln2 = nn.LayerNorm(head_dim)
-        self.head_dim = head_dim
-    def forward(self, X):
-
-        B,T,C = X.shape
-        q = self.queries(X)
-        k = self.keys(X)
-        # wei = q @ k.transpose(-2, -1) * C**-0.5
-        wei = q @ k.transpose(-2, -1) * self.head_dim**-0.5
-        wei = wei.masked_fill(self.tril[:T,:T] == 0, float('-inf'))
-        wei = F.softmax(wei, dim = -1)
-        v = self.values(X)
-
-        out = wei@v
-        # print(out.shape)
-        return out
-
-
-class MultiHeadedAttention(nn.Module):
-
-    def __init__(self, num_heads, context_length, embed_size):
-        super().__init__()
-
-        self.heads = nn.ModuleList([Head(context_length, embed_size, embed_size//num_heads) for _ in range(num_heads)])
-        self.fc = nn.Linear(embed_size,embed_size)
-    def forward(self, x):
-        out = torch.cat([h(x) for h in self.heads], dim =-1)
-        out = self.fc(out)
-        return out
 
 class RecurrentLM(nn.Module):
 
@@ -122,22 +136,41 @@ class RecurrentLM(nn.Module):
 
     return logits, loss
 
-  def generate(self, idx, max_new_tokens):
+  def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, top_p=None):
       for _ in range(max_new_tokens):
+          idx_cond = idx[:, -self.context_length:]
+          logits, _ = self(idx_cond)
+          logits = logits[:, -1, :]  # last time step
 
-        idx_cond = idx[:,-self.context_length:]
+          # Apply temperature
+          logits = logits / temperature
 
-        logits, loss = self(idx_cond)
+          # Top-k filtering
+          if top_k is not None:
+              values, indices = torch.topk(logits, top_k)
+              mask = torch.full_like(logits, float('-inf'))
+              logits = mask.scatter(1, indices, values)
 
-        logits = logits[:,-1,:]
+          # Top-p filtering
+          if top_p is not None:
+              sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+              cum_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
-        probs = F.softmax(logits, dim=-1)
+              sorted_mask = cum_probs > top_p
+              sorted_mask[..., 1:] = sorted_mask[..., :-1]
+              sorted_mask[..., 0] = 0
 
-        idx_next = torch.multinomial(probs, num_samples=1)
+              mask = sorted_mask.scatter(1, sorted_indices, sorted_mask)
+              logits = logits.masked_fill(mask, float('-inf'))
 
-        idx = torch.cat((idx, idx_next), dim = 1)
-        # print(idx.shape)
+          # Sample from final distribution
+          probs = F.softmax(logits, dim=-1)
+          idx_next = torch.multinomial(probs, num_samples=1)
+
+          idx = torch.cat((idx, idx_next), dim=1)
+
       return idx
+
 
 def generate(string):
 
@@ -163,10 +196,14 @@ if __name__ == "__main__":
     
     from Data import load_tokenizer
     
-    model_path = r"C:\Users\Rohit Francis\Downloads\model2 (2).pt"
+    model_path = r".\special_decoder_logs\new_model.pt"
     cache_dir = "./cache"
 
-    m = RecurrentLM(11799,768,1024,12, device=device)
+    vocab_size = 11799
+    context_length = 768
+    n_embs = 512
+    
+    m = RecurrentLM(vocab_size,context_length,n_embs,12, device=device)
     m.load_state_dict(torch.load(model_path))
     # print(f"Model:{m.named_modules}\n\n")
     
@@ -187,10 +224,10 @@ if __name__ == "__main__":
     
     
     with torch.no_grad():
-      initial_text = "and go to sleep. But the twins didn't want to sleep yet. They wanted to"
+      initial_text = "what are you doing?"
       context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
       # m.generate(context, 100)
-      generated_tokens = m.generate(context, 100)[0].tolist()
+      generated_tokens = m.generate(context, 100, 0.2, top_k=50)[0].tolist()
       generated_text = tokenizer.decode(generated_tokens)
       print(f"Generated: {generated_text[:1000]}")
     

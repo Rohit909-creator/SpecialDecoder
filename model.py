@@ -53,7 +53,8 @@ class TLMBlock(nn.Module):
     super().__init__()
 
     self.ln_1 = nn.LayerNorm(embed_size)
-    self.sa_head = MultiHeadedAttention(num_heads, context_length,embed_size)
+    # self.sa_head = MultiHeadedAttention(num_heads, context_length,embed_size)
+    
     self.dropout = nn.Dropout(p=0.2)
     self.ln_2 = nn.LayerNorm(embed_size)
     # self.silu = nn.SiLU()
@@ -65,9 +66,11 @@ class TLMBlock(nn.Module):
     )
   def forward(self, x):
 
-    # B,T = x.shape
+    B,T = x.shape
     # print(B,T)
-    x = x+self.sa_head(self.ln_1(x))
+    # x = x+self.sa_head(self.ln_1(x))
+    x = self.ln_1(x)
+    x = x + nn.functional.scaled_dot_product_attention(x, x, x, is_causal=True, dropout_p=0.2)
     # print(x.shape)
     x = x + self.mlp(self.ln_2(x))
 
