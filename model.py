@@ -7,45 +7,31 @@ import time
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-class Head(nn.Module):
-
-    def __init__(self, context_length, embed_size, head_dim):
+class SwiGLU(nn.Module):
+    def __init__(self, dim, hidden_dim):
         super().__init__()
-
-        self.queries = nn.Linear(embed_size, head_dim, bias = False)
-        self.keys = nn.Linear(embed_size, head_dim, bias=False)
-        self.values = nn.Linear(embed_size, head_dim, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(context_length, context_length)))
-
-        # self.ln = nn.LayerNorm(head_dim)
-        # self.ln2 = nn.LayerNorm(head_dim)
-        self.head_dim = head_dim
-    def forward(self, X):
-
-        B,T,C = X.shape
-        q = self.queries(X)
-        k = self.keys(X)
-        wei = q @ k.transpose(-2, -1) * C**-0.5
-        wei = wei.masked_fill(self.tril[:T,:T] == 0, float('-inf'))
-        wei = F.softmax(wei, dim = -1)
-        v = self.values(X)
-
-        out = wei@v
-        # print(out.shape)
-        return out
-
-
-class MultiHeadedAttention(nn.Module):
-
-    def __init__(self, num_heads, context_length, embed_size):
-        super().__init__()
-
-        self.heads = nn.ModuleList([Head(context_length, embed_size, embed_size//num_heads) for _ in range(num_heads)])
-        self.fc = nn.Linear(embed_size,embed_size)
+        self.w1 = nn.Linear(dim, hidden_dim, bias=False)
+        self.w2 = nn.Linear(hidden_dim, dim, bias=False)
+        self.w3 = nn.Linear(dim, hidden_dim, bias=False)
+        
     def forward(self, x):
-        out = torch.cat([h(x) for h in self.heads], dim =-1)
-        out = self.fc(out)
-        return out
+        # SwiGLU: Swish(xW1) ⊙ (xW3) W2
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+    
+    def forward(self, x):
+        # More numerically stable RMSNorm
+        # Calculate mean of squares
+        mean_square = x.pow(2).mean(dim=-1, keepdim=True)
+        # RMS normalization
+        rms = torch.sqrt(mean_square + self.eps)
+        return self.weight * x / rms
+
 
 class TLMBlock(nn.Module):
 
@@ -64,6 +50,7 @@ class TLMBlock(nn.Module):
       nn.Dropout(p=0.1),
       nn.Linear(2*embed_size, embed_size),
     )
+    
   def forward(self, x):
 
     B,T = x.shape
@@ -151,7 +138,6 @@ if __name__ ==  "__main__":
   m = TLM(11799,768,1024,12)
   m.load_state_dict(torch.load(model_path))
   # print(f"Model:{m.named_modules}\n\n")
-  
   
   # named_children = m.named_children()
   # print(named_children)

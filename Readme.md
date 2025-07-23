@@ -1,3 +1,5 @@
+![Loss Plot](loss_plot.png)
+
 ## This is an experiment on LLMs, based on recent findings from mechanistic Interpretability
 
 *Btw, this code is a continuition of my SimpleLLM repo,*
@@ -18,6 +20,22 @@ so for that we need large number of the LLM-Blocks, so how about this, what if c
 - Where Special Block can be a recurrent transformer model or someother model which does computation (N-1 -> 6) => (7*N) times to model deep representations.
 
 - This is a work in progress, so please feel free to contribute or suggest improvements.
+
+# 🔍 What to Look For
+-     So here’s the deal —
+-     This whole experiment is aimed at testing whether a single smart block can simulate what deeper transformer layers do. That’s the core idea.
+
+# 📉 Loss Plot Insight
+-     Check out the loss plot (loss_plot.html) to see where things start to explode — that's where the current implementation hits a limitation. It gives you a sense of where the modeling struggles when trying to compress multi-layer behavior into one block.
+
+-     The exploding loss is expected — remember this is research-in-progress, and it's about pushing limits, not just playing safe.
+
+-     📓 For Generations & Outputs
+    To see actual generations and tests, scroll down to the SLM.ipynb notebook.
+    That's where I’ve played around with sampling, and how this block behaves inside the usual transformer architecture.
+
+
+
 
 **So main the higlight of this experiment is to see if we can replace the computation of multiple blocks with a single block that can model the deep representations of the previous blocks, so for that I made this SpecialTimedDecoderBlock with a trick on using nn.Embedding to keep track of the time steps**
 

@@ -68,27 +68,44 @@ class TLMBlock(nn.Module):
 class SpecialTimedDecoderBlock(nn.Module):
 
     def __init__(self, timesteps, num_heads, context_length, embed_size, device='cpu'):
-       super().__init__()
+      
+      super().__init__()
 
-       self.device = device
+      self.device = device
+      self.embeddings = nn.Embedding(num_embeddings=timesteps, embedding_dim=embed_size) # Did u know that u could use embeddings as a clock signal
+      self.LLMBlock = TLMBlock(num_heads, context_length, embed_size)
+      #self.timer = torch.tensor([0]).to(device=device)
+      #self.timer.requires_grad_(False)
 
-       self.embeddings = nn.Embedding(num_embeddings=timesteps, embedding_dim=embed_size)
-       self.LLMBlock = TLMBlock(num_heads, context_length, embed_size)
-    #    self.timer = torch.tensor([0]).to(device=device)
-    #    self.timer.requires_grad_(False)
-
-       self.time_steps = timesteps
+      self.time_steps = timesteps
 
     def forward(self, current_embs):
-        timer = torch.tensor([i for i in range(self.time_steps)]).to(self.device)
-        new_embs = current_embs
-        for i in range(self.time_steps):
-            # timer[0] = i
-            # print(timer[i].unsqueeze(0))
-            current_embs = current_embs + new_embs + self.embeddings(timer[i].unsqueeze(0))
-            new_embs = self.LLMBlock(current_embs)
+      timer_embs = self.embeddings(torch.arange(self.time_steps, device=self.device))
+      
+      x = current_embs
+      for i in range(self.time_steps):
+          x = x + timer_embs[i].unsqueeze(0)  # Assuming batch dimension
+          x = self.LLMBlock(x)
+      return x  
 
-        return new_embs
+
+    # Next Time Baby
+    # def forward(self, current_embs):
+    #     timer = torch.tensor([i for i in range(self.time_steps)]).to(self.device) # this controls the timer
+    #     prev_embs = None
+    #     hx, cx = torch.zeros(current_embs.shape), torch.zeros(current_embs.shape)
+    #     for i in range(self.time_steps):
+            
+    #         if i == 0:
+    #           new_embs = current_embs + self.embeddings(timer[i].unsqueeze(0))
+              
+    #         else:
+    #           hx, cx = self.LSTMCELL(prev_embs, (hx, cx))
+    #           current_embs = current_embs + hx + self.embeddings(timer[i].unsqueeze(0)) # and this is how u do it
+    #           new_embs = self.LLMBlock(current_embs)
+
+    #         prev_embs = new_embs
+    #     return new_embs
 
 
 class RecurrentLM(nn.Module):
@@ -194,44 +211,44 @@ if __name__ == "__main__":
     out = tlm(x)
     print(out[0].shape)
     
-    from Data import load_tokenizer
+    # from Data import load_tokenizer
     
-    model_path = r".\special_decoder_logs\new_model.pt"
-    cache_dir = "./cache"
+    # model_path = r".\special_decoder_logs\new_model.pt"
+    # cache_dir = "./cache"
 
-    vocab_size = 11799
-    context_length = 768
-    n_embs = 512
+    # vocab_size = 11799
+    # context_length = 768
+    # n_embs = 512
     
-    m = RecurrentLM(vocab_size,context_length,n_embs,12, device=device)
-    m.load_state_dict(torch.load(model_path))
-    # print(f"Model:{m.named_modules}\n\n")
-    
-    
-    # named_children = m.named_children()
-    # print(named_children)
+    # m = RecurrentLM(vocab_size,context_length,n_embs,12, device=device)
+    # m.load_state_dict(torch.load(model_path))
+    # # print(f"Model:{m.named_modules}\n\n")
     
     
-    # m.block = m.block[:5]
-    # print(len(m.block))
-    m = m.to(device)
-    
-    tokenizer = load_tokenizer(cache_dir)
-    
-    # initial_text = "and go to sleep. But the twins didn't want to sleep yet. They wanted to"
-    # context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
+    # # named_children = m.named_children()
+    # # print(named_children)
     
     
+    # # m.block = m.block[:5]
+    # # print(len(m.block))
+    # m = m.to(device)
     
-    with torch.no_grad():
-      initial_text = "what are you doing?"
-      context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
-      # m.generate(context, 100)
-      generated_tokens = m.generate(context, 100, 0.2, top_k=50)[0].tolist()
-      generated_text = tokenizer.decode(generated_tokens)
-      print(f"Generated: {generated_text[:1000]}")
+    # tokenizer = load_tokenizer(cache_dir)
     
-    # tlm = TLM(4,8,32,10).load_state_dict(torch.load(model_path))
-    # x = torch.ones((8,4),dtype=torch.long)
-    # out = tlm(x)
-    # print(out[0].shape)
+    # # initial_text = "and go to sleep. But the twins didn't want to sleep yet. They wanted to"
+    # # context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
+    
+    
+    
+    # with torch.no_grad():
+    #   initial_text = "what are you doing?"
+    #   context = torch.tensor([tokenizer.encode(initial_text)], dtype=torch.long).to(device)
+    #   # m.generate(context, 100)
+    #   generated_tokens = m.generate(context, 100, 0.2, top_k=50)[0].tolist()
+    #   generated_text = tokenizer.decode(generated_tokens)
+    #   print(f"Generated: {generated_text[:1000]}")
+    
+    # # tlm = TLM(4,8,32,10).load_state_dict(torch.load(model_path))
+    # # x = torch.ones((8,4),dtype=torch.long)
+    # # out = tlm(x)
+    # # print(out[0].shape)
