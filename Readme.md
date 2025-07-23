@@ -43,25 +43,23 @@ That's where I’ve played around with sampling, and how this block behaves insi
 class SpecialTimedDecoderBlock(nn.Module):
 
     def __init__(self, timesteps, num_heads, context_length, embed_size, device='cpu'):
-       super().__init__()
+      
+      super().__init__()
 
-       self.device = device
+      self.device = device
+      self.embeddings = nn.Embedding(num_embeddings=timesteps, embedding_dim=embed_size) # Did u know that u could use embeddings as a clock signal
+      self.LLMBlock = TLMBlock(num_heads, context_length, embed_size)
+      #self.timer = torch.tensor([0]).to(device=device)
+      #self.timer.requires_grad_(False)
 
-       self.embeddings = nn.Embedding(num_embeddings=timesteps, embedding_dim=embed_size)
-       self.LLMBlock = TLMBlock(num_heads, context_length, embed_size)
-    #    self.timer = torch.tensor([0]).to(device=device)
-    #    self.timer.requires_grad_(False)
-
-       self.time_steps = timesteps
+      self.time_steps = timesteps
 
     def forward(self, current_embs):
-        timer = torch.tensor([i for i in range(self.time_steps)]).to(self.device)
-        new_embs = current_embs
-        for i in range(self.time_steps):
-            # timer[0] = i
-            # print(timer[i].unsqueeze(0))
-            current_embs = current_embs + new_embs + self.embeddings(timer[i].unsqueeze(0))
-            new_embs = self.LLMBlock(current_embs)
-
-        return new_embs
+      timer_embs = self.embeddings(torch.arange(self.time_steps, device=self.device))
+      
+      x = current_embs
+      for i in range(self.time_steps):
+          x = x + timer_embs[i].unsqueeze(0)  # Assuming batch dimension
+          x = self.LLMBlock(x)
+      return x
 ```
