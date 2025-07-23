@@ -55,11 +55,13 @@ class SpecialTimedDecoderBlock(nn.Module):
       self.time_steps = timesteps
 
     def forward(self, current_embs):
-      timer_embs = self.embeddings(torch.arange(self.time_steps, device=self.device))
-      
-      x = current_embs
+      timer = torch.tensor([i for i in range(self.time_steps)]).to(self.device)
+      new_embs = current_embs
       for i in range(self.time_steps):
-          x = x + timer_embs[i].unsqueeze(0)  # Assuming batch dimension
-          x = self.LLMBlock(x)
-      return x
+          # timer[0] = i
+          # print(timer[i].unsqueeze(0))
+          current_embs = current_embs + new_embs + self.embeddings(timer[i].unsqueeze(0))
+          new_embs = self.LLMBlock(current_embs)
+      return new_embs
+
 ```
