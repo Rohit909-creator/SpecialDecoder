@@ -22,17 +22,17 @@ so for that we need large number of the LLM-Blocks, so how about this, what if c
 - This is a work in progress, so please feel free to contribute or suggest improvements.
 
 # 🔍 What to Look For
--     So here’s the deal —
--     This whole experiment is aimed at testing whether a single smart block can simulate what deeper transformer layers do. That’s the core idea.
+- So here’s the deal —
+- This whole experiment is aimed at testing whether a single smart block can simulate what deeper transformer layers do. That’s the core idea.
 
 # 📉 Loss Plot Insight
--     Check out the loss plot (loss_plot.html) to see where things start to explode — that's where the current implementation hits a limitation. It gives you a sense of where the modeling struggles when trying to compress multi-layer behavior into one block.
+- Check out the loss plot (loss_plot.html) to see where things start to explode — that's where the current implementation hits a limitation. It gives you a sense of where the modeling struggles when trying to compress multi-layer behavior into one block.
 
--     The exploding loss is expected — remember this is research-in-progress, and it's about pushing limits, not just playing safe.
+- The exploding loss is expected — remember this is research-in-progress, and it's about pushing limits, not just playing safe.
 
--     📓 For Generations & Outputs
-    To see actual generations and tests, scroll down to the SLM.ipynb notebook.
-    That's where I’ve played around with sampling, and how this block behaves inside the usual transformer architecture.
+- 📓 For Generations & Outputs
+To see actual generations and tests, scroll down to the SLM.ipynb notebook.
+That's where I’ve played around with sampling, and how this block behaves inside the usual transformer architecture.
 
 
 
