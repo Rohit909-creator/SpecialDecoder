@@ -2,8 +2,6 @@
 
 ## This is an experiment on LLMs, based on recent findings from mechanistic Interpretability
 
-*Btw, this code is a continuition of my SimpleLLM repo,*
-
 - So based on a recent video I saw, LLMs need deep layers to make complex circuits and get complex understandings,
 so for that we need large number of the LLM-Blocks, so how about this, what if could make a specific layer or a new kind of block to model what the other layers do, basically said,
 
@@ -21,14 +19,20 @@ so for that we need large number of the LLM-Blocks, so how about this, what if c
 
 - This is a work in progress, so please feel free to contribute or suggest improvements.
 
+- Below are my findings and the code for the SpecialTimedDecoderBlock, which is a type of LLMBlock that can model deep representations of previous blocks by using a clock signal. Its kind of like an extension to any LLM's Transformer Blocks, so you can use it in your own LLMs.
+
+- Just do replace self.block in SpecialTimedDecoderBlock with your own LLMBlock, and it will work.
+
 # 🔍 What to Look For
 - So here’s the deal —
 - This whole experiment is aimed at testing whether a single smart block can simulate what deeper transformer layers do. That’s the core idea.
 
 # 📉 Loss Plot Insight
-- Check out the loss plot (loss_plot.html) to see where things start to explode — that's where the current implementation hits a limitation. It gives you a sense of where the modeling struggles when trying to compress multi-layer behavior into one block.
+- The SpecialTimedDecoderBlock is a type of extension to any LLMBlock, all it does is adds a clock signal to the input embeddings and then runs the LLMBlock multiple times, so it can model the deep representations of the previous blocks.
 
-- The exploding loss is expected — remember this is research-in-progress, and it's about pushing limits, not just playing safe.
+- The model seems to learn something, as shown in the loss plot above. The loss is decreasing, which indicates that the model is learning to predict the next token based on the previous tokens and the clock signal.
+
+- One SpecialTimedDecoderBlock does 12 cycles of computation, which is equivalent to 5 transformer blocks, so it can model the deep representations of the previous blocks. Thus you can replace 5 transformer blocks with a single SpecialTimedDecoderBlock.
 
 - 📓 For Generations & Outputs
 To see actual generations and tests, scroll down to the SLM.ipynb notebook.

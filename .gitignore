@@ -1,3 +1,5 @@
 /__pycache__
 /embeddings_cache
 /special_decoder_logs
+model-epoch=27-val_loss=3.73.ckpt
+model-epoch=29-val_loss=3.72.ckpt
